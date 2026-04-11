@@ -1,1 +1,3 @@
 *.txt
+compressed_luts*.py
+analysis_results.py
