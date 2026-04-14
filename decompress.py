@@ -66,39 +66,43 @@ def decompress_column_g4(col_data, n_entries):
     Decompress a single column from group-of-4 format.
 
     For each group:
-      - col[4*i] = anchors[i]
-      - col[4*i+1] = col[4*i] + diffs[i]
-      - col[4*i+2] = col[4*i+1] + (diffs[i] + dods2[j])
-      - col[4*i+3] = col[4*i+1] + (diffs[i] + dods3[j])
+      - col[4*n]   = anchor
+      - col[4*n+2] = anchor + delta_2step
+      - col[4*n+1] = anchor + floor(delta_2step/2) - dod1
+      - col[4*n+3] = col[4*n+2] + floor(delta_2step/2) - dod3
     """
     if n_entries == 0:
         return []
 
     anchors = col_data["anchors"]
-    diffs = col_data["diffs"]
-    dods2 = col_data["dods2"]
-    dods3 = col_data["dods3"]
+    delta_2step = col_data["delta_2step"]
+    dod1 = col_data["dod1"]
+    dod3 = col_data["dod3"]
 
     result = []
 
     for i in range(len(anchors)):
         anchor = anchors[i]
-        result.append(anchor)
+        result.append(anchor)  # col[4*n]
 
-        if i < len(diffs):
-            diff = diffs[i]
-            col1 = anchor + diff
+        # col[4*n+1]
+        if i < len(dod1):
+            d2s = delta_2step[i] if i < len(delta_2step) else 0
+            expected_delta = d2s // 2
+            col1 = anchor + expected_delta - dod1[i]
             result.append(col1)
 
-            if i < len(dods2):
-                dod2 = dods2[i]
-                col2 = col1 + diff + dod2
-                result.append(col2)
+        # col[4*n+2]
+        if i < len(delta_2step):
+            col2 = anchor + delta_2step[i]
+            result.append(col2)
 
-                if i < len(dods3):
-                    dod3 = dods3[i]
-                    col3 = col1 + diff + dod3
-                    result.append(col3)
+        # col[4*n+3]
+        if i < len(dod3):
+            d2s = delta_2step[i] if i < len(delta_2step) else 0
+            expected_delta = d2s // 2
+            col3 = result[-1] + expected_delta - dod3[i]
+            result.append(col3)
 
     return result[:n_entries]
 

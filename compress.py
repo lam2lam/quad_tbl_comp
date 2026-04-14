@@ -151,21 +151,21 @@ def compress_column_g4(column):
     Compress a column using group-of-4 algorithm (O(1) access).
 
     For each group of 4 elements:
-      - anchor: col[4*i] (full value)
-      - diff1: col[4*i+1] - col[4*i]
-      - dod2: (col[4*i+2] - col[4*i+1]) - (col[4*i+1] - col[4*i])
-      - dod3: (col[4*i+3] - col[4*i+1]) - (col[4*i+1] - col[4*i])
+      - anchor: col[4*n] (full value)
+      - delta_2step: col[4*n+2] - col[4*n]
+      - dod1: floor(delta_2step/2) - (col[4*n+1] - col[4*n])
+      - dod3: floor(delta_2step/2) - (col[4*n+3] - col[4*n+2])
 
-    Returns dict with anchors, diffs, dods and their bit widths.
+    Returns dict with anchors, deltas, dods and their bit widths.
     """
     n = len(column)
     if n == 0:
-        return {"anchors": [], "diffs": [], "dods2": [], "dods3": [], "n_groups": 0}
+        return {"anchors": [], "delta_2step": [], "dod1": [], "dod3": [], "n_groups": 0}
 
     anchors = []
-    diffs = []
-    dods2 = []
-    dods3 = []
+    delta_2step = []
+    dod1 = []
+    dod3 = []
 
     for g in range(0, n, 4):
         group = column[g : g + 4]
@@ -175,24 +175,33 @@ def compress_column_g4(column):
         # Anchor: full value
         anchors.append(group[0])
 
-        if len(group) >= 2:
-            diffs.append(group[1] - group[0])
-
+        # delta_2step (if we have index 2)
         if len(group) >= 3:
-            d2 = group[2] - group[1]
-            d1 = group[1] - group[0]
-            dods2.append(d2 - d1)
+            d2s = group[2] - group[0]
+            delta_2step.append(d2s)
 
-        if len(group) == 4:
-            d3 = group[3] - group[1]
-            d1 = group[1] - group[0]
-            dods3.append(d3 - d1)
+            # dod1 (if we have index 1)
+            if len(group) >= 2:
+                expected_delta = d2s // 2  # floor division
+                actual_delta_1 = group[1] - group[0]
+                dod1.append(expected_delta - actual_delta_1)
+
+            # dod3 (if we have index 3)
+            if len(group) == 4:
+                expected_delta = d2s // 2  # floor division
+                actual_delta_3 = group[3] - group[2]
+                dod3.append(expected_delta - actual_delta_3)
+        else:
+            # Handle incomplete groups
+            if len(group) >= 2:
+                delta_2step.append(0)  # Placeholder
+                dod1.append(0)
 
     return {
         "anchors": anchors,
-        "diffs": diffs,
-        "dods2": dods2,
-        "dods3": dods3,
+        "delta_2step": delta_2step,
+        "dod1": dod1,
+        "dod3": dod3,
         "n_groups": len(anchors),
     }
 
@@ -405,27 +414,27 @@ def compress_g4():
 
             # Compute bit widths
             anchor_bits = bit_cost(g4_data["anchors"]) if g4_data["anchors"] else 0
-            diff_bits = bit_cost(g4_data["diffs"]) if g4_data["diffs"] else 0
-            dod2_bits = bit_cost(g4_data["dods2"]) if g4_data["dods2"] else 0
-            dod3_bits = bit_cost(g4_data["dods3"]) if g4_data["dods3"] else 0
+            delta_bits = bit_cost(g4_data["delta_2step"]) if g4_data["delta_2step"] else 0
+            dod1_bits = bit_cost(g4_data["dod1"]) if g4_data["dod1"] else 0
+            dod3_bits = bit_cost(g4_data["dod3"]) if g4_data["dod3"] else 0
 
             # Total cost
             compressed_cost = (
                 anchor_bits * len(g4_data["anchors"]) +
-                diff_bits * len(g4_data["diffs"]) +
-                dod2_bits * len(g4_data["dods2"]) +
-                dod3_bits * len(g4_data["dods3"])
+                delta_bits * len(g4_data["delta_2step"]) +
+                dod1_bits * len(g4_data["dod1"]) +
+                dod3_bits * len(g4_data["dod3"])
             )
             total_compressed += compressed_cost
 
             compressed_data[func_name]["columns"][col_name] = {
                 "anchors": g4_data["anchors"],
-                "diffs": g4_data["diffs"],
-                "dods2": g4_data["dods2"],
-                "dods3": g4_data["dods3"],
+                "delta_2step": g4_data["delta_2step"],
+                "dod1": g4_data["dod1"],
+                "dod3": g4_data["dod3"],
                 "anchor_bits": anchor_bits,
-                "diff_bits": diff_bits,
-                "dod2_bits": dod2_bits,
+                "delta_bits": delta_bits,
+                "dod1_bits": dod1_bits,
                 "dod3_bits": dod3_bits,
             }
 
@@ -435,9 +444,9 @@ def compress_g4():
             )
             print(
                 f"      anchors={anchor_bits}b x {len(g4_data['anchors'])}, "
-                f"diffs={diff_bits}b x {len(g4_data['diffs'])}, "
-                f"dod2={dod2_bits}b x {len(g4_data['dods2'])}, "
-                f"dod3={dod3_bits}b x {len(g4_data['dods3'])}"
+                f"delta_2step={delta_bits}b x {len(g4_data['delta_2step'])}, "
+                f"dod1={dod1_bits}b x {len(g4_data['dod1'])}, "
+                f"dod3={dod3_bits}b x {len(g4_data['dod3'])}"
             )
 
     # Write compressed data to Python file
@@ -458,12 +467,12 @@ def compress_g4():
             for col_name, col_data in func_data["columns"].items():
                 f.write(f"            '{col_name}': {{\n")
                 f.write(f"                'anchors': {col_data['anchors']},\n")
-                f.write(f"                'diffs': {col_data['diffs']},\n")
-                f.write(f"                'dods2': {col_data['dods2']},\n")
-                f.write(f"                'dods3': {col_data['dods3']},\n")
+                f.write(f"                'delta_2step': {col_data['delta_2step']},\n")
+                f.write(f"                'dod1': {col_data['dod1']},\n")
+                f.write(f"                'dod3': {col_data['dod3']},\n")
                 f.write(f"                'anchor_bits': {col_data['anchor_bits']},\n")
-                f.write(f"                'diff_bits': {col_data['diff_bits']},\n")
-                f.write(f"                'dod2_bits': {col_data['dod2_bits']},\n")
+                f.write(f"                'delta_bits': {col_data['delta_bits']},\n")
+                f.write(f"                'dod1_bits': {col_data['dod1_bits']},\n")
                 f.write(f"                'dod3_bits': {col_data['dod3_bits']},\n")
                 f.write(f"            }},\n")
             f.write(f"        }}\n")
